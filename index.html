@@ -1403,16 +1403,17 @@
             }
 
             data.forEach((item, index) => {
-                const widget = createWidget(item, index);
+                const globalIndex = allData.indexOf(item);
+                const widget = createWidget(item, globalIndex, index);
                 container.appendChild(widget);
             });
         }
 
         // Criar widget
-        function createWidget(item, index) {
+        function createWidget(item, dataIndex, animationIndex = dataIndex) {
             const widget = document.createElement('div');
             widget.className = `widget ${item.status}${item.destaque ? ' destaque' : ''}`;
-            widget.style.animationDelay = `${index * 0.05}s`;
+            widget.style.animationDelay = `${animationIndex * 0.05}s`;
 
             const statusIcons = {
                 realizado: '✓',
@@ -1430,12 +1431,18 @@
 
             let tarefasHTML = '';
             if (item.tarefas && item.tarefas.length > 0) {
-                const tarefasItems = item.tarefas.map((tarefa, idx) => `
-                    <li class="tarefa-item" id="tarefa-${index}-${idx}">
-                        <input type="checkbox" class="tarefa-checkbox" onchange="toggleTarefa(${index}, ${idx}, this)">
-                        <span class="tarefa-texto">${tarefa}</span>
-                    </li>
-                `).join('');
+                const tarefasItems = item.tarefas.map((tarefa, idx) => {
+                    const tarefaKey = `${dataIndex}-${idx}`;
+                    const isChecked = Boolean(tarefasCompletas[tarefaKey]);
+                    const checkedAttr = isChecked ? 'checked' : '';
+                    const tarefaClass = `tarefa-item${isChecked ? ' concluida' : ''}`;
+                    return `
+                        <li class="${tarefaClass}" id="tarefa-${tarefaKey}">
+                            <input type="checkbox" class="tarefa-checkbox" ${checkedAttr} onchange="toggleTarefa(${dataIndex}, ${idx}, this)">
+                            <span class="tarefa-texto">${tarefa}</span>
+                        </li>
+                    `;
+                }).join('');
                 tarefasHTML = `
                     <div class="tarefas-list">
                         <h4>📋 Tarefas a Realizar:</h4>
@@ -1602,6 +1609,8 @@
             }
             
             markAsUnsaved();
+            // Persistir imediatamente a mudança no Firebase para os checkboxes
+            saveData();
         }
 
         // Fechar modal
