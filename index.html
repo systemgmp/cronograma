@@ -4,6 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard de Implantação e Automação</title>
+    <!-- Firebase SDK (módulos) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+        import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyD70waJKFK71-Ss6JzoBSCF47mQgs7Llz4",
+            authDomain: "gmp-cronograma.firebaseapp.com",
+            databaseURL: "https://gmp-cronograma-default-rtdb.firebaseio.com",
+            projectId: "gmp-cronograma",
+            storageBucket: "gmp-cronograma.firebasestorage.app",
+            messagingSenderId: "949004119902",
+            appId: "1:949004119902:web:cee00a227a2a268f4329cf",
+            measurementId: "G-65ZGL48E0K"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        window.firebaseDB = db;
+        window.firebaseSet = set;
+        window.firebaseGet = get;
+        window.firebaseRef = ref;
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
     <style>
         * {
             margin: 0;
@@ -1584,14 +1609,33 @@
             document.getElementById('detailModal').style.display = 'none';
         }
 
-        // Salvar alterações
-        function saveChanges() {
-            closeModal();
-            saveData();
+        function isFirebaseReady() {
+            return Boolean(window.firebaseDB && window.firebaseSet && window.firebaseGet && window.firebaseRef);
         }
 
-        // Salvar dados no localStorage
-        function saveData() {
+        function waitForFirebase() {
+            if (isFirebaseReady()) {
+                return Promise.resolve();
+            }
+
+            return new Promise(resolve => {
+                window.addEventListener('firebaseReady', () => resolve(), { once: true });
+            });
+        }
+
+        // Salvar alterações
+        async function saveChanges() {
+            closeModal();
+            await saveData();
+        }
+
+        // Salvar dados no Firebase
+        async function saveData() {
+            if (!isFirebaseReady()) {
+                showSaveNotification('Aguardando conexão com o Firebase...', 'error');
+                return;
+            }
+
             try {
                 const dataToSave = {
                     activities: allData.map(item => ({
@@ -1602,8 +1646,11 @@
                     timestamp: new Date().toISOString()
                 };
                 
-                localStorage.setItem('cronogramaDashboard', JSON.stringify(dataToSave));
-                showSaveNotification('Dados salvos com sucesso!', 'success');
+                await window.firebaseSet(
+                    window.firebaseRef(window.firebaseDB, 'cronograma'),
+                    dataToSave
+                );
+                showSaveNotification('Dados salvos na nuvem!', 'success');
                 updateSaveStatus('saved');
             } catch (error) {
                 console.error('Erro ao salvar dados:', error);
@@ -1612,34 +1659,40 @@
             }
         }
 
-        // Carregar dados do localStorage
-        function loadData() {
-            try {
-                const saved = localStorage.getItem('cronogramaDashboard');
-                if (saved) {
-                    const data = JSON.parse(saved);
-                    
-                    // Restaurar status das atividades
-                    if (data.activities) {
-                        data.activities.forEach(savedItem => {
-                            const item = allData.find(d => d.maquina === savedItem.maquina);
-                            if (item) {
-                                item.status = savedItem.status;
-                            }
-                        });
-                    }
-                    
-                    // Restaurar tarefas concluídas
-                    if (data.tarefas) {
-                        tarefasCompletas = data.tarefas;
-                    }
-                    
-                    console.log('Dados carregados do localStorage');
-                    return true;
-                }
+        // Carregar dados do Firebase
+        async function loadData() {
+            if (!isFirebaseReady()) {
                 return false;
+            }
+
+            try {
+                const snapshot = await window.firebaseGet(
+                    window.firebaseRef(window.firebaseDB, 'cronograma')
+                );
+
+                if (!snapshot || !snapshot.exists()) {
+                    return false;
+                }
+
+                const data = snapshot.val();
+                
+                if (data.activities) {
+                    data.activities.forEach(savedItem => {
+                        const item = allData.find(d => d.maquina === savedItem.maquina);
+                        if (item) {
+                            item.status = savedItem.status;
+                        }
+                    });
+                }
+                
+                if (data.tarefas) {
+                    tarefasCompletas = data.tarefas;
+                }
+                
+                console.log('Dados carregados do Firebase');
+                return true;
             } catch (error) {
-                console.error('Erro ao carregar dados:', error);
+                console.error('Erro ao carregar dados do Firebase:', error);
                 return false;
             }
         }
@@ -1751,29 +1804,42 @@
         // Iniciar dashboard
         initDashboard();
         
-        // Carregar dados salvos
-        if (loadData()) {
-            renderWidgets(filterData());
-            updateStats();
-            updateProgress();
-            updateSaveStatus('saved');
-        } else {
-            updateSaveStatus('saved');
-        }
+        waitForFirebase()
+            .then(async () => {
+                const loaded = await loadData();
+                if (loaded) {
+                    renderWidgets(filterData());
+                    updateStats();
+                    updateProgress();
+                }
+                updateSaveStatus('saved');
+            })
+            .catch(error => {
+                console.error('Erro ao inicializar o Firebase:', error);
+                updateSaveStatus('unsaved');
+            });
 
         // Salvar automaticamente a cada 30 segundos se houver alterações
-        setInterval(() => {
-            if (document.getElementById('saveStatus').classList.contains('unsaved')) {
-                saveData();
+        let autoSaving = false;
+        setInterval(async () => {
+            const hasUnsavedChanges = document.getElementById('saveStatus').classList.contains('unsaved');
+            if (hasUnsavedChanges && !autoSaving && isFirebaseReady()) {
+                autoSaving = true;
+                try {
+                    await saveData();
+                } finally {
+                    autoSaving = false;
+                }
             }
         }, 30000);
 
         // Salvar ao fechar a página
-        window.addEventListener('beforeunload', (e) => {
-            if (document.getElementById('saveStatus').classList.contains('unsaved')) {
+        window.addEventListener('beforeunload', () => {
+            if (document.getElementById('saveStatus').classList.contains('unsaved') && isFirebaseReady()) {
                 saveData();
             }
         });
-    </script>
+
+        </script>
 </body>
 </html>
