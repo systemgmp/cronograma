@@ -770,6 +770,16 @@
             box-shadow: 0 12px 30px rgba(229, 57, 53, 0.5);
         }
 
+        .save-btn-secondary {
+            background: linear-gradient(135deg, #f0f0f0 0%, #d0d0d0 100%);
+            color: #333;
+        }
+
+        .save-btn-secondary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(158, 158, 158, 0.5);
+        }
+
         .save-notification {
             position: fixed;
             top: 30px;
@@ -1031,6 +1041,9 @@
         <button class="save-btn save-btn-primary" onclick="saveData()" title="Salvar dados">
             <span>💾</span>
             <span>Salvar</span>
+        </button>
+        <button class="save-btn save-btn-secondary" onclick="resetarProjeto()" title="Resetar projeto">
+            <span>Resetar</span>
         </button>
     </div>
 
@@ -1611,6 +1624,35 @@
             markAsUnsaved();
             // Persistir imediatamente a mudança no Firebase para os checkboxes
             saveData();
+        }
+
+        // Resetar todo o projeto
+        async function resetarProjeto() {
+            if (!isFirebaseReady()) {
+                showSaveNotification('Aguardando conexão com o Firebase...', 'error');
+                return;
+            }
+
+            if (!confirm('Tem certeza que deseja resetar todo o projeto?')) {
+                return;
+            }
+
+            allData.forEach(item => {
+                item.status = 'pendente';
+            });
+            tarefasCompletas = {};
+            currentFilter = { status: '', phase: '', search: '' };
+
+            document.getElementById('statusFilter').value = '';
+            document.getElementById('phaseFilter').value = '';
+            document.getElementById('searchInput').value = '';
+
+            renderWidgets(allData);
+            updateStats();
+            updateProgress();
+            markAsUnsaved();
+
+            await saveData();
         }
 
         // Fechar modal
